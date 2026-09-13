@@ -55,7 +55,7 @@ class Keeper:
     def load(self, ch, method, properties, body):
         wr(self.num,'LOAD!')
         message = json.loads(body.decode())
-        wr(self.num,'get title num ', len(self.data) + 1, 'title', message)
+        # wr(self.num,'get title num ', len(self.data) + 1, 'title', message)
         mess = message['mess']
         if mess == 'load':
             # self.data[message['data']['title']] = message['data']['file']

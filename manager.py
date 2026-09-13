@@ -205,9 +205,9 @@ class Manager:
                 if i.lower() not in self.data:
                     self.data[i.lower()] = set()
                 self.data[i.lower()].add(data['num'])
-            wr(message['data'], '!!!!!!!!!!!!!')
-            wr('current data:', self.data)
-            wr()
+            # wr(message['data'], '!!!!!!!!!!!!!')
+            # wr('current data:', self.data)
+            # wr()
         elif mess == 'end':
             self.find_k -= 1
         elif mess == 'info':

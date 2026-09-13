@@ -23,7 +23,7 @@ def send_to(channel, queue, body, reply_to = None):
 
 def split_words(ch, string, num):
     data = {'mess': 'words', 'data': {'words': string.split(), 'num': num}}
-    wr('____________- Words data', data)
+    # wr('____________- Words data', data)
     send_to(ch, 'to_manager_from_k', data)
 
 def load(ch, method, properties, body):
@@ -33,6 +33,7 @@ def load(ch, method, properties, body):
         return
     if message['mess'] != 'load':
         wr(f'ETL Error, unknown message from {method.routing_key}:', message)
+        return
     data = message['data']
     flag = False
     # res = []
@@ -48,11 +49,11 @@ def load(ch, method, properties, body):
                 if '<TITLE>' in i:
                     flag = True
                     title = i[i.index('<TITLE>') + 7:]
-                    wr('Im here 1')
+                    # wr('Im here 1')
                     if '</TITLE>' in title:
                         title = title[:title.index('</TITLE>')]
 
-                        wr('Im here 2')
+                        # wr('Im here 2')
                         # res.append(title) # тут наверное можно сразу отправлять
                         # wr((ord(title[0].lower()) - ord('a')), (ord(title[0].lower()) - ord('a')) // count, count, title)
                         send_flag = True
@@ -60,7 +61,7 @@ def load(ch, method, properties, body):
                 elif '</TITLE>' in i and flag:
                     title += i[:i.index('</TITLE>')]
 
-                    wr('Im here 3')
+                    # wr('Im here 3')
 
                     # res.append(title[:title.index('</TITLE>')]) # и тут
                     # wr((ord(title[0].lower()) - ord('a')) // count, count, title, 2)
@@ -83,7 +84,7 @@ def load(ch, method, properties, body):
                     title = title.replace('&amp;', '&').replace('&quot;', '"')
                     title = title.replace('<', '').replace('>', '')
                     title = ' '.join(title.split()).strip()
-                    wr('title:', title)
+                    # wr('title:', title)
                     if title != '':
                         num = 0
                         if mode:
