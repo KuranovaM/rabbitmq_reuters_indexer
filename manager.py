@@ -126,7 +126,7 @@ class Manager:
             """
             data = mess_j['data']
             files =  glob.glob(f"{data['path']}/*.sgm")
-            wr(files)
+            wr('((((((((((((((((((', files)
             if not files:
                 self.send_to(properties.reply_to, 'files not found')
             else:

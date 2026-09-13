@@ -48,6 +48,7 @@ class Keeper:
                     'mess': 'find',
                     'data': f"{title},\tfile {file},\t keeper {self.num}"
                 })
+                count += 1
         wr(self.num,'find', count, 'titles, send end mess')
         self.send_to('to_manager_from_k', {'mess': "end"})
 

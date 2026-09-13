@@ -14,7 +14,7 @@ def send_to(channel, queue, body, reply_to = None):
                       body=json.dumps(body).encode())
 
 def resp_one(ch, method, properties, body):
-    print('print')
+    # print('print')
     ch.stop_consuming()
     body = body.decode()
     # reply_queue = properties.reply_to

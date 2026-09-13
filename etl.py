@@ -43,22 +43,27 @@ def load(ch, method, properties, body):
     send_flag = False
     wr('open file ', data['path'])
     try:
-        with open(data['path'], 'r') as f:
+        with open(data['path'], 'r', errors='replace') as f:
             for i in f:
                 if '<TITLE>' in i:
                     flag = True
                     title = i[i.index('<TITLE>') + 7:]
+                    wr('Im here 1')
                     if '</TITLE>' in title:
                         title = title[:title.index('</TITLE>')]
+
+                        wr('Im here 2')
                         # res.append(title) # тут наверное можно сразу отправлять
-                        wr((ord(title[0].lower()) - ord('a')), (ord(title[0].lower()) - ord('a')) // count, count, title)
+                        # wr((ord(title[0].lower()) - ord('a')), (ord(title[0].lower()) - ord('a')) // count, count, title)
                         send_flag = True
                         flag = False
                 elif '</TITLE>' in i and flag:
                     title += i[:i.index('</TITLE>')]
 
+                    wr('Im here 3')
+
                     # res.append(title[:title.index('</TITLE>')]) # и тут
-                    wr((ord(title[0].lower()) - ord('a')) // count, count, title, 2)
+                    # wr((ord(title[0].lower()) - ord('a')) // count, count, title, 2)
                     send_flag = True
                     flag = False
 
@@ -86,9 +91,13 @@ def load(ch, method, properties, body):
                         else:
                             first_char = title[0].lower()
                             if 'a' <= first_char <= 'z':
-                                num = (ord(first_char) - ord('a')) // count
-                                if num >= data['k']:
-                                    num = data['k'] - 1
+                                try:
+                                    num = (ord(first_char) - ord('a')) // count
+                                    if num >= data['k']:
+                                        num = data['k'] - 1
+                                except Exception as e:
+                                    num = 0
+                                    wr('ERROR~~~', e)
                             else:
                                 num = 0
                         send_to(ch, f'to_k{num}_from_etl',
