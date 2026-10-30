@@ -24,6 +24,7 @@ class Manager:
         self.find_k = -1
         self.info_res = []
         self.info_k = 0
+        self.keeper_count = 0
 
     def start_proc(self, num, tp, param = None):
         try:
@@ -118,6 +119,8 @@ class Manager:
                 self.start_proc(i, 'etl', self.k)
                 wr(f'start keeper num {i}')
                 self.start_proc(i, 'keeper', self.k)
+                wr(f'start rep num {i}')
+                self.start_proc(i, 'rep', self.k)
             self.send_to(properties.reply_to, 'System ready')
 
         elif mess == 'load':
@@ -134,8 +137,10 @@ class Manager:
                     self.send_to(f'to_etl{i % self.k}_queue',
                                  {'mess': 'load', 'data': {'path': files[i],
                                                            'mode': data['mode'], 'k': self.k}})
-                self.send_to(properties.reply_to, 'Ok')
-
+                # self.send_to(properties.reply_to, 'Ok')
+                self.keeper_count = 0
+                for i in range(self.k):
+                    self.send_to(f'to_etl{i}_queue', {'mess': 'end', 'k': self.k})
         elif mess == 'info':
             for i in range(self.k):
                 self.send_to(f'to_keeper{i}_queue', {'mess': 'get_info'})
@@ -148,6 +153,7 @@ class Manager:
             for i in range(self.k):
                 self.send_to(f'to_keeper{i}_queue', {'mess': 'exit'})
                 self.send_to(f'to_etl{i}_queue', {'mess': 'exit'})
+                self.send_to(f'to_r{i}_from_man', {'mess': 'exit'})
             self.send_to('to_client_queue', 'Good bye')
             wr('Exit send')
             ch.stop_consuming()
@@ -192,11 +198,14 @@ class Manager:
         :param body:
         :return:
         """
-        wr('keep', body.decode())
+        # wr('keep', body.decode())
         message = json.loads(body.decode())
         mess = message['mess']
         if mess == 'find':
             self.find_res.append(message['data'])
+        elif mess == 'end_load':
+            wr(f'END LOAD! keeper {self.keeper_count}')
+            self.keeper_count += 1
         elif mess == 'load':
             self.load_k += 1
         elif mess == 'words':
@@ -228,9 +237,13 @@ class Manager:
         if self.load_k == self.k:
             self.send_to('to_client_queue', 'Ok')
             self.load_k = 0
+        if self.keeper_count == self.k:
+            self.send_to('to_client_queue', 'Ok')
+            self.keeper_count = 0
+
         # with open('man_log.txt', 'a') as f:
         #     f.write('keeper mess: ' + str(message) + '\n')
-        wr('keeper mess: ', message)
+        # wr('keeper mess: ', message)
 
     # def load(self, path):
     #     pass

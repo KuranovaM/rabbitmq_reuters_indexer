@@ -28,6 +28,10 @@ def split_words(ch, string, num):
 
 def load(ch, method, properties, body):
     message = json.loads(body.decode())
+    if message['mess'] == 'end':
+        for i in range(message['k']):
+            send_to(ch, f'to_k{i}_from_etl',
+                    {'mess': 'end', 'k': message['k']})
     if message['mess'] == 'exit':
         ch.stop_consuming()
         return
