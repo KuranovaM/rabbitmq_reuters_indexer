@@ -130,6 +130,9 @@ def main():
         elif spl_string[0].lower() == 'info' and len(spl_string) == 1:
             send_to(channel, 'to_manager_queue', {'mess': 'info'}, 'to_client_queue')
             wait_answer(channel)
+        elif spl_string[0].lower() == 'kill' and len(spl_string) == 2:
+            send_to(channel, 'to_manager_queue', {'mess': 'kill', 'data': int(spl_string[1])}, 'to_client_queue')
+            wait_answer(channel)
         else:
             print('Unknown command has been entered, try again')
 

@@ -15,6 +15,7 @@ class Keeper:
         self.channel = None
         self.is_rep_ready = False
         self.is_end = 0
+        self.is_running = True
 
     def start(self):
         self.connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
@@ -27,7 +28,16 @@ class Keeper:
         self.channel.basic_consume(queue=f'to_keeper{self.num}_queue', on_message_callback=self.resp, auto_ack=True)
         self.channel.basic_consume(queue=f'to_k{self.num}_from_etl', on_message_callback=self.load, auto_ack=True)
         try:
-            self.channel.start_consuming()
+            while self.is_running:
+                self.connection.process_data_events(time_limit=1)  # 1 сек — период heartbeat
+
+                if self.is_running:
+                    try:
+                        self.send_to('to_manager_from_k', {'mess': 'alive', 'data': self.num})
+                        # wr(self.num, 'HEARTBEAT!!!')
+                    except Exception as e:
+                        wr(self.num, 'heartbeat failed', e)
+                        break
         except Exception as e:
             wr(self.num, "Завершение... ", e)
         finally:
@@ -66,17 +76,22 @@ class Keeper:
             self.is_rep_ready = False
             # self.data[message['data']['title']] = message['data']['file']
             self.data.append((message['data']['title'], message['data']['file']))
+            self.send_to(f'to_r{self.num}_from_keeper',
+                         {'mess': 'load', 'data': {'title': message['data']['title'],
+                                                         'file': message['data']['file']}})
             # self.count += 1
         if mess == 'end':
             self.is_end += 1
+            wr(self.num, message['k'])
             if self.is_end == message['k']:
-                wr(self.num, 'END LOAD!')
-                self.send_to('to_manager_from_k', {'mess': 'end_load'})
-                for i in self.data:
-                    self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'load', 'data': i})
+                # for i in self.data:
+                #     self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'load', 'data': i})
                 self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'end'})
+                wr(self.num, 'END LOAD num 2!')
         if mess == 'end_load':
+            wr(self.num, 'END REPL LOAD!')
             self.is_rep_ready = True
+            self.send_to('to_manager_from_k', {'mess': 'end_load'})
 
 
 
@@ -87,9 +102,11 @@ class Keeper:
         if mess == 'purge':
             self.data.clear()
             wr(self.num, 'all purge')
+            self.send_to(f'to_r{self.num}_from_man', message)
         elif mess == 'exit':
             # self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'exit'})
             ch.stop_consuming()
+            self.is_running = False
             wr(self.num, 'exit command')
 
         elif mess == 'find':
@@ -97,7 +114,7 @@ class Keeper:
             wr(self.num, 'end find')
         elif mess == 'get_info':
             self.send_to('to_manager_from_k', {'mess': 'info',
-                                              'data': {'count': len(self.data), 'num': self.num}})
+                                              'data': {'count': len(self.data), 'num': f"Keeper {self.num}"}})
         else:
             wr(self.num,'Хз что тут', message)
 

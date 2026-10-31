@@ -26,12 +26,19 @@ def split_words(ch, string, num):
     # wr('____________- Words data', data)
     send_to(ch, 'to_manager_from_k', data)
 
+def get_keeper_q(lst, num):
+    if lst[num]:
+        return f'to_k{num}_from_etl'
+    return f'to_r{num}_from_keeper'
+
 def load(ch, method, properties, body):
     message = json.loads(body.decode())
     if message['mess'] == 'end':
-        for i in range(message['k']):
-            send_to(ch, f'to_k{i}_from_etl',
-                    {'mess': 'end', 'k': message['k']})
+        for i in range(len(message['k'])):
+            send_to(ch, get_keeper_q(message['k'], i),
+                    {'mess': 'end', 'k': len(message['k'])})
+        wr('END LOAD send to ', [get_keeper_q(message['k'], i) for i in range(len(message['k']))])
+        return
     if message['mess'] == 'exit':
         ch.stop_consuming()
         return
@@ -44,7 +51,8 @@ def load(ch, method, properties, body):
     # local_res = []
     title = ''
     mode = data['mode'] == 'h'
-    count = 26 // data['k'] + ((26 % data['k']) != 0)
+    k = len(data['k'])
+    count = 26 // k + ((26 % k) != 0)
     send_flag = False
     wr('open file ', data['path'])
     try:
@@ -56,30 +64,12 @@ def load(ch, method, properties, body):
                     # wr('Im here 1')
                     if '</TITLE>' in title:
                         title = title[:title.index('</TITLE>')]
-
-                        # wr('Im here 2')
-                        # res.append(title) # тут наверное можно сразу отправлять
-                        # wr((ord(title[0].lower()) - ord('a')), (ord(title[0].lower()) - ord('a')) // count, count, title)
                         send_flag = True
                         flag = False
                 elif '</TITLE>' in i and flag:
                     title += i[:i.index('</TITLE>')]
-
-                    # wr('Im here 3')
-
-                    # res.append(title[:title.index('</TITLE>')]) # и тут
-                    # wr((ord(title[0].lower()) - ord('a')) // count, count, title, 2)
                     send_flag = True
                     flag = False
-
-                    # if mode:
-                    #     send_to(ch, f'to_keeper{hash(title) % data["k"]}_queue',
-                    #             {'mess': 'load', 'data': title})
-                    # else:
-                    #     send_to(ch, f'to_keeper{(ord(title[0].lower()) - ord("a")) * count}_queue',
-                    #             {'mess': 'load', 'data': title})
-                    # title = ''
-                    # flag = False
                 elif flag:
                     title += i
                 if send_flag and title != '':
@@ -90,27 +80,25 @@ def load(ch, method, properties, body):
                     title = ' '.join(title.split()).strip()
                     # wr('title:', title)
                     if title != '':
-                        num = 0
                         if mode:
-                            num = hash(title) % data['k']
+                            num = hash(title) % k
                         else:
                             first_char = title[0].lower()
                             if 'a' <= first_char <= 'z':
                                 try:
                                     num = (ord(first_char) - ord('a')) // count
-                                    if num >= data['k']:
-                                        num = data['k'] - 1
+                                    if num >= k:
+                                        num = k - 1
                                 except Exception as e:
                                     num = 0
                                     wr('ERROR~~~', e)
                             else:
                                 num = 0
-                        send_to(ch, f'to_k{num}_from_etl',
+                        send_to(ch, get_keeper_q(data['k'], num),
                                 {'mess': 'load', 'data': {'title': title, 'file': data['path']}})
                         split_words(ch, title, num)
                         title = ''
         wr('END of file', data['path'])
-        # for i in range(data['k'])
         # send_to(ch, 'to_manager_from_k', {'mess': 'load'})
         # wr('send mess end to manager')
 

@@ -14,6 +14,7 @@ class Replica:
         self.connection = None
         self.channel = None
         self.load_flag = False
+        self.is_main = False
 
     def start(self):
         self.connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
@@ -45,30 +46,33 @@ class Replica:
         word = word.lower()
         wr(self.num, '---------------find word', word)
         for title, file in self.data:
-            if word in title.lower():
+            if word in title.lower().split():
                 self.send_to('to_manager_from_k', {
                     'mess': 'find',
-                    'data': f"{title},\tfile {file},\t keeper {self.num}"
+                    'data': f"{title},\tfile {file},\t replica {self.num}"
                 })
                 count += 1
         wr(self.num,'find', count, 'titles, send end mess')
         self.send_to('to_manager_from_k', {'mess': "end"})
 
     def load(self, ch, method, properties, body):
-        # wr(self.num,'LOAD!')
         message = json.loads(body.decode())
+        # wr(self.num,'LOAD!', message)
         # wr(self.num,'get title num ', len(self.data) + 1, 'title', message)
         mess = message['mess']
         if mess == 'load':
             self.load_flag = True
             # self.data[message['data']['title']] = message['data']['file']
-            self.data.append(message['data'])
+            self.data.append((message['data']['title'], message['data']['file']))
             # wr(self.num, 'load data')
             # self.count += 1
         if mess == 'end' and self.load_flag:
             self.load_flag = False
             wr(self.num, 'end load data')
-            self.send_to(f'to_k{self.num}_from_etl', {'mess': 'end_load'})
+            if self.is_main:
+                self.send_to('to_manager_from_k', {'mess': 'end_load'})
+            else:
+                self.send_to(f'to_k{self.num}_from_etl', {'mess': 'end_load'})
 
 
 
@@ -80,14 +84,21 @@ class Replica:
             self.data.clear()
             wr(self.num, 'all purge')
         elif mess == 'exit':
+            self.is_main = True
             ch.stop_consuming()
             wr(self.num, 'exit command')
         elif mess == 'find':
+            self.is_main = True
             self.find(message['data'])
             wr(self.num, 'end find')
         elif mess == 'get_info':
+            self.is_main = True
+            wr(self.num, 'INFO: ', len(self.data))
             self.send_to('to_manager_from_k', {'mess': 'info',
-                                              'data': {'count': len(self.data), 'num': self.num}})
+                                              'data': {'count': len(self.data), 'num': f"Replica {self.num}"}})
+        elif mess == 'load' or mess == 'end':
+            self.is_main = True
+            self.load(ch, method, properties, body)
         else:
             wr(self.num,'Хз что тут', message)
 
