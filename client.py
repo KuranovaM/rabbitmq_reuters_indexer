@@ -31,6 +31,7 @@ def main():
     end_flag = True
     # start_flag = False
     k = 0
+    count = 0
     connection = None
     channel = None
     # callback_queue = None
@@ -47,15 +48,16 @@ def main():
 
         if 'start' in string:
             string = string.split()
-            if len(string) < 2:
+            if len(string) < 3:
                 print("Parameter required: the number of ETL processes")
-            elif len(string) > 2:
+            elif len(string) > 3:
                 print("too many parameters")
             else:
                 if not string[1].isdigit():
                     print('Unknown command has been entered, try again')
                 else:
                     k = int(string[1])
+                    count = int(string[2])
                     # start_flag = True
                     break
         elif 'load' in string or 'purge' in string or 'find' in string:
@@ -67,17 +69,19 @@ def main():
     if end_flag:
         # надо запустить файл manager как-то...
         # print('+++++')
-        process = subprocess.Popen(
-            [sys.executable, "manager.py"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        # print('!!!!!!!!!!')
         connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
         channel = connection.channel()
         channel.queue_declare(queue='to_manager_queue') #, durable=True)
         channel.queue_purge(queue='to_manager_queue')
+        print(count)
+        for i in range(count):
+            process = subprocess.Popen(
+                [sys.executable, "manager.py", str(i), str(count), str(k)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+        # print('!!!!!!!!!!')
 
         channel.queue_declare(queue='to_client_queue')
         channel.queue_purge(queue='to_client_queue')
@@ -132,6 +136,9 @@ def main():
             wait_answer(channel)
         elif spl_string[0].lower() == 'kill' and len(spl_string) == 2:
             send_to(channel, 'to_manager_queue', {'mess': 'kill', 'data': int(spl_string[1])}, 'to_client_queue')
+            wait_answer(channel)
+        elif spl_string[0].lower() == 'kill' and spl_string[1].lower() == 'manager' and len(spl_string) == 3:
+            send_to(channel, 'to_manager_queue', {'mess': 'kill_m', 'data': int(spl_string[2])}, 'to_client_queue')
             wait_answer(channel)
         else:
             print('Unknown command has been entered, try again')
