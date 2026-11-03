@@ -1,7 +1,6 @@
 import json
 import re
 import sys
-from curses.ascii import isalpha
 
 import pika
 

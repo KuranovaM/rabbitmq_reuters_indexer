@@ -6,6 +6,7 @@ import time
 
 import pika
 
+from etl import send_to
 
 
 def wr(num, *mess):
@@ -27,9 +28,13 @@ class Manager:
         self.info_k = 0
         self.keeper_count = 0
         self.live_k = set()
-        self.last_seen = {}  # num -> time.time()
-        self.hb_timeout = 3  # 3× интервала пинга keeper'а (5с)
-        self.is_running = True  # для выхода из цикла
+        self.last_seen = {}
+        self.hb_timeout = 3  # пинг keeper
+        self.is_running = True
+        self.last_count = k
+        self.find_word = None
+        self.is_work = None
+
 
         self.im_lider = False
         self.is_election = False
@@ -45,6 +50,8 @@ class Manager:
         self.leader_timeout = 5.0  # нет heartbeat от лидера → подозреваем отказ
         self.hb_interval = 1.0  # лидер шлёт heartbeat раз в секунду
         self.last_hb_sent = 0.0
+
+        self.is_end = False
 
     def start_proc(self, num, tp, param = None):
         try:
@@ -184,10 +191,15 @@ class Manager:
 
         elif mess == 'exit':
             self.is_running = False
+            self.is_end = True
+            ch.stop_consuming()
+            wr(self.self_num, 'EXIT send')
+
 
         elif mess == 'kill_m':
             self.send_to('to_client_queue', f'Manager {self.self_num} killed')
             self.is_running = False
+            self.is_end = True
             ch.stop_consuming()
             wr(self.self_num, 'EXIT')
 
@@ -197,6 +209,7 @@ class Manager:
         Создаем основные очереди для связи с менеджером
         to_manager_queue - от клиента
         to_manager_from_k - от остальных
+        to_manage{i}_queue - очередь к другим менеджерам
         :return:
         """
         wr(self.self_num, 'func start')
@@ -214,6 +227,7 @@ class Manager:
             auto_ack=True,
         )
         self.channel.queue_declare(queue='to_manager_from_k')
+        self.channel.queue_purge(queue=f'to_manager_from_k')
         self.channel.queue_declare(queue='to_manager_queue')
         # self.channel.queue_purge(queue=f'to_manager_queue')
 
@@ -230,30 +244,13 @@ class Manager:
                 if self.im_lider:
                     self.check_heartbeats()  # для keeper'ов
                 self.check_mess_lid()
+                if self.is_end:
+                    break
 
         except Exception as e:
             wr(self.self_num, "Завершение... ", e)
         finally:
             self.connection.close()
-
-
-        # self.channel.queue_declare(queue='to_manager_queue')
-        # # self.channel.queue_purge(queue=f'to_manager_queue')
-        # self.channel.basic_consume(queue='to_manager_queue', on_message_callback=self.processing, auto_ack=True) # auto_ack=False)
-        #
-        # self.channel.queue_declare(queue='to_manager_from_k')
-        # self.channel.queue_purge(queue=f'to_manager_from_k')
-        # self.channel.basic_consume(queue='to_manager_from_k', on_message_callback=self.find,auto_ack=True) # auto_ack=False)
-        #
-        # wr(self.self_num, 'start consuming')
-        # try:
-        #     while self.is_running:
-        #         self.connection.process_data_events(time_limit=2)
-        #         self.check_heartbeats()
-        # except Exception as e:
-        #     wr(self.self_num, "Завершение... ", e)
-        # finally:
-        #     self.connection.close()
 
     def check_mess_lid(self):
         now = time.time()
@@ -263,19 +260,17 @@ class Manager:
                 self.last_hb_sent = now
             return
 
-        # follower
+        # wr(self.self_num, 'check_mess_lid')
         if not self.is_election and now - self.last_leader_hb > self.leader_timeout:
             wr(self.self_num, 'leader timeout -> start election')
             self.start_election()
 
-        # я инициировал выборы
         if self.is_election:
             if not self.got_ok:
                 if now - self.election_started > self.leader_timeout:
                     wr(self.self_num, 'no OK -> I am leader')
                     self.announce_coordinator()
             else:
-                # кто-то выше ответил OK; ждём COORDINATOR
                 if now - self.election_started > self.leader_timeout * 2:
                     wr(self.self_num, 'no COORDINATOR -> restart election')
                     self.is_election = False
@@ -289,7 +284,7 @@ class Manager:
         :param reply_to: куда ответить или none
         :return:
         """
-        wr(self.self_num, 'send to ' + queue + ' body ' + str(body))
+        # wr(self.self_num, 'send to ' + queue + ' body ' + str(body))
         properties = None
         if reply_to is not None:
             properties = pika.BasicProperties(reply_to=reply_to.encode())
@@ -300,17 +295,38 @@ class Manager:
                           body=body.encode())
 
     def get_keeper_q(self, num):
+        """
+        Выдаем нужную очередь, в зависимости от того, умер процесс или нет
+        :param num: номер по которому узнаеи
+        :return:
+        """
         if num in self.live_k:
             return f'to_keeper{num}_queue'
         return f'to_r{num}_from_man'
 
     def check_heartbeats(self):
+        """
+        Проверяем разницу во времени
+        (если больше, то он умер)
+        :return:
+        """
         now = time.time()
         for num, t in list(self.last_seen.items()):
             if num in self.live_k and now - t > self.hb_timeout:
                 self.live_k.discard(num)
                 wr(self.self_num, f'keeper {num} DEAD (no heartbeat {now - t:.0f}s)')
                 # self.send_to('to_client_queue', f'Keeper {num} seems dead')
+        if self.last_count != len(self.live_k):
+            if self.is_work == 'info':
+                self.is_work = None
+                self.info_res.clear()
+                self.info_k = 0
+                self.send_k_info()
+            elif self.is_work == 'find':
+                self.is_work = None
+                self.find_res.clear()
+                self.send_k_find()
+
 
 
     def processing(self, ch, method, properties, body):
@@ -322,6 +338,7 @@ class Manager:
         :param body:
         :return:
         """
+        self.send_to('to_client_queue', 'alive')
         mess_j = json.loads(body.decode())
         mess = mess_j['mess']
         wr(self.self_num, 'proc with mess ' + str(mess_j))
@@ -350,10 +367,11 @@ class Manager:
             self.send_to(properties.reply_to, 'System ready')
 
         elif mess == 'load':
-            self.check_heartbeats()
             """
             Распределение файлов по процессам для загрузки данных
             """
+            self.check_heartbeats()
+            self.last_count = len(self.live_k)
             data = mess_j['data']
             files =  glob.glob(f"{data['path']}/*.sgm")
             wr(self.self_num, '((((((((((((((((((', files)
@@ -371,24 +389,31 @@ class Manager:
                     self.send_to(f'to_etl{i}_queue', {'mess': 'end', 'k': lst})
         elif mess == 'info':
             self.check_heartbeats()
-            for i in range(self.k):
-                self.send_to(self.get_keeper_q(i), {'mess': 'get_info'})
+            self.send_k_info()
 
         elif mess == 'kill':
+            """
+            Удаляем хранителя
+            """
             self.send_to(f'to_keeper{mess_j['data']}_queue', {'mess': 'exit'})
             self.send_to('to_client_queue', 'ok')
+            wr(self.self_num, 'ok i killed keeper! $)')
 
 
         elif mess == 'kill_m':
+            """
+            Удаляем менеджера
+            """
             target = mess_j['data']
             if target == self.self_num:
                 self.send_to('to_client_queue', f'Manager {self.self_num} killed')
                 self.is_running = False
                 ch.stop_consuming()
-                wr(self.self_num, 'EXIT')
+                self.is_end = True
+                wr(self.self_num, 'EXIT!')
             else:
                 self.send_to(f'to_manage{target}_queue',
-                             {'mess': 'kill_m', 'from': self.self_num})
+                             {'mess': 'kill_m', 'data': target})
 
         elif mess == 'exit':
             """
@@ -401,25 +426,23 @@ class Manager:
                 self.send_to(f'to_r{i}_from_man', {'mess': 'exit'})
             self.send_to('to_client_queue', 'Good bye')
             wr(self.self_num, 'Exit send')
-            self.broadcast({'mess': 'exit', 'from': self.self_num})
+            self.broadcast({'mess': 'exit', 'data': self.self_num})
             self.is_running = False
             ch.stop_consuming()
+            self.is_end = True
             wr(self.self_num, 'EXIT')
 
         elif mess == 'find':
             """
             Поиск только если есть слово в словаре менеджера
             """
-            self.check_heartbeats()
             # wr(self.self_num, 'FIND', mess_j['data'], self.data)
             if mess_j['data'] not in self.data:
                 self.send_to(properties.reply_to, 'This word is missing, please try again')
             else:
-                self.find_k = len(self.data[mess_j['data']])
-
-                wr(self.self_num, 'count', self.find_k)
-                for i in self.data[mess_j['data']]:
-                    self.send_to(self.get_keeper_q(i), {'mess': 'find', 'data': mess_j['data']})
+                self.find_word = mess_j['data']
+                self.check_heartbeats()
+                self.send_k_find()
 
         elif mess == 'purge':
             """
@@ -433,12 +456,33 @@ class Manager:
             self.data.clear()
             wr(self.self_num, 'send end purge')
             self.send_to(properties.reply_to, 'Ok')
-            wr(self.self_num, 'end purge')
-            self.broadcast({'mess': 'purge_sync', 'from': self.self_num})
+            wr(self.self_num, 'OK end purge')
+            self.broadcast({'mess': 'purge_sync', 'data': self.self_num})
         # with open('man_log.txt', 'a') as f:
         #     f.write('client mess: ' + str(mess_j) + '\n')
 
         wr(self.self_num, 'client mess: ', mess_j)
+
+    def send_k_find(self):
+        self.last_count = len(self.live_k)
+        self.find_k = len(self.data[self.find_word])
+        self.is_work = 'find'
+
+        wr(self.self_num, 'count', self.find_k)
+        for i in self.data[self.find_word]:
+            self.send_to(self.get_keeper_q(i), {'mess': 'find', 'data': self.find_word})
+
+
+    def send_k_info(self):
+        """
+        Запрос о количестве заголовков на хранителях
+        :return:
+        """
+        # self.check_heartbeats()
+        self.last_count = len(self.live_k)
+        self.is_work = 'info'
+        for i in range(self.k):
+            self.send_to(self.get_keeper_q(i), {'mess': 'get_info'})
 
     def find(self, ch, method, properties, body):
         """
@@ -481,13 +525,14 @@ class Manager:
                 self.send_to('to_client_queue', '\n'.join(self.info_res))
                 self.info_res.clear()
                 self.info_k = 0
+                self.is_work = None
         elif mess == 'alive':
             num = message['data']
             self.last_seen[num] = time.time()
             if num not in self.live_k:
                 wr(self.self_num, f'keeper {num} alive again')
                 self.live_k.add(num)
-                # опционально: уведомить клиента, что keeper вернулся
+
         if self.find_k == 0:
             self.find_res.sort()
             self.send_to('to_client_queue', 'Resalt:\n' + '\n'.join(self.find_res)
@@ -495,12 +540,17 @@ class Manager:
             self.find_res.clear()
             self.find_k = -1
             wr(self.self_num, "send finding titles to client")
+            self.is_work = None
         if self.load_k == self.k:
             self.send_to('to_client_queue', 'Ok')
+            wr(self.self_num, 'ok i load data')
             self.load_k = 0
+            self.is_work = None
         if self.keeper_count == self.k:
             self.send_to('to_client_queue', 'Ok')
+            wr(self.self_num, 'ok all keepers asked')
             self.keeper_count = 0
+            self.is_work = None
 
         # with open('man_log.txt', 'a') as f:
         #     f.write('keeper mess: ' + str(message) + '\n')

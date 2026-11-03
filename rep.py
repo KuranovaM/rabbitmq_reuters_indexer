@@ -15,6 +15,7 @@ class Replica:
         self.channel = None
         self.load_flag = False
         self.is_main = False
+        self.is_end = 0
 
     def start(self):
         self.connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
@@ -23,6 +24,7 @@ class Replica:
         self.channel.queue_declare(queue=f'to_manager_from_k') # для поиска заголовков по слову (отправка менеджеру)
         self.channel.queue_declare(queue=f'to_r{self.num}_from_keeper') # для загрузки
         self.channel.queue_declare(queue=f'to_r{self.num}_from_man') # для поиска (запрос от менеджера)
+        # self.channel.queue_purge(queue=f'to_r{self.num}_from_keeper')
         wr(self.num, 'CONNECT')
         self.channel.basic_consume(queue=f'to_r{self.num}_from_man', on_message_callback=self.resp, auto_ack=True)
         self.channel.basic_consume(queue=f'to_r{self.num}_from_keeper', on_message_callback=self.load, auto_ack=True)
@@ -66,13 +68,29 @@ class Replica:
             self.data.append((message['data']['title'], message['data']['file']))
             # wr(self.num, 'load data')
             # self.count += 1
-        if mess == 'end' and self.load_flag:
-            self.load_flag = False
-            wr(self.num, 'end load data')
-            if self.is_main:
+
+        # if mess == 'end':
+        #     self.is_end += 1
+        #     wr(self.num, message['k'])
+        #     if self.is_end == message['k']:
+        #         # for i in self.data:
+        #         #     self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'load', 'data': i})
+        #         self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'end'})
+        #         wr(self.num, 'END LOAD num 2!')
+        if mess == 'end':
+            wr(self.num, 'I hane end etl')
+            self.is_end += 1
+            wr(self.num, message['k'])
+            if self.is_end == message['k']:
+                self.is_end = 0
+                wr(self.num, 'Здесь!!!')
+                # for i in self.data:
+                #     self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'load', 'data': i})
                 self.send_to('to_manager_from_k', {'mess': 'end_load'})
-            else:
-                self.send_to(f'to_k{self.num}_from_etl', {'mess': 'end_load'})
+        if mess == 'end_k':
+            self.load_flag = True
+            wr(self.num, 'i write end_load')
+            self.send_to(f'to_k{self.num}_from_r', {'mess': 'end_load'})
 
 
 
@@ -98,6 +116,7 @@ class Replica:
                                               'data': {'count': len(self.data), 'num': f"Replica {self.num}"}})
         elif mess == 'load' or mess == 'end':
             self.is_main = True
+            wr(self.num, 'from etl', message)
             self.load(ch, method, properties, body)
         else:
             wr(self.num,'Хз что тут', message)

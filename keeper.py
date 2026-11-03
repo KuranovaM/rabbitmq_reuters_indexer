@@ -21,12 +21,17 @@ class Keeper:
         self.connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
         self.channel = self.connection.channel()
         self.channel.queue_declare(queue=f'to_keeper{self.num}_queue')  # , durable=True)
+        self.channel.queue_purge(queue=f'to_keeper{self.num}_queue')
         self.channel.queue_declare(queue=f'to_manager_from_k') # для поиска заголовков по слову
         self.channel.queue_declare(queue=f'to_k{self.num}_from_etl') # для загрузки
+        self.channel.queue_declare(queue=f'to_k{self.num}_from_r') # для загрузки
+        self.channel.queue_purge(queue=f'to_k{self.num}_from_r')
         self.channel.queue_declare(queue=f'to_r{self.num}_from_keeper') # реплика
+        self.channel.queue_purge(queue=f'to_r{self.num}_from_keeper')
         wr(self.num, 'CONNECT')
         self.channel.basic_consume(queue=f'to_keeper{self.num}_queue', on_message_callback=self.resp, auto_ack=True)
         self.channel.basic_consume(queue=f'to_k{self.num}_from_etl', on_message_callback=self.load, auto_ack=True)
+        self.channel.basic_consume(queue=f'to_k{self.num}_from_r', on_message_callback=self.check_end, auto_ack=True)
         try:
             while self.is_running:
                 self.connection.process_data_events(time_limit=1)  # 1 сек — период heartbeat
@@ -84,10 +89,17 @@ class Keeper:
             self.is_end += 1
             wr(self.num, message['k'])
             if self.is_end == message['k']:
+                self.is_end = 0
                 # for i in self.data:
                 #     self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'load', 'data': i})
-                self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'end'})
+                self.send_to(f'to_r{self.num}_from_keeper', {'mess': 'end_k'})
                 wr(self.num, 'END LOAD num 2!')
+
+    def check_end(self, ch, method, properties, body):
+        message = json.loads(body.decode())
+        # wr(self.num,'get title num ', len(self.data) + 1, 'title', message)
+        mess = message['mess']
+
         if mess == 'end_load':
             wr(self.num, 'END REPL LOAD!')
             self.is_rep_ready = True
@@ -113,6 +125,7 @@ class Keeper:
             self.find(message['data'])
             wr(self.num, 'end find')
         elif mess == 'get_info':
+            wr(self.num, {'count': len(self.data), 'num': f"Keeper {self.num}"})
             self.send_to('to_manager_from_k', {'mess': 'info',
                                               'data': {'count': len(self.data), 'num': f"Keeper {self.num}"}})
         else:
