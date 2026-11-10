@@ -47,8 +47,8 @@ class Manager:
         self.client_tag = None
         self.keeper_tag = None
 
-        self.leader_timeout = 5.0  # нет heartbeat от лидера → подозреваем отказ
-        self.hb_interval = 1.0  # лидер шлёт heartbeat раз в секунду
+        self.leader_timeout = 5.0  # 4.0
+        self.hb_interval = 1.0
         self.last_hb_sent = 0.0
 
         self.is_end = False
@@ -126,7 +126,7 @@ class Manager:
         except Exception as e:
             wr(self.self_num, 'tyt3', e)
         self.last_seen = {i: time.time() for i in range(self.k)}
-        wr(self.self_num, 'tyt4')
+        # wr(self.self_num, 'tyt4')
         wr(self.self_num, f'I AM LEADER ({self.self_num}), k={self.k}')
         self.check_mess_lid()
 
@@ -253,6 +253,10 @@ class Manager:
             self.connection.close()
 
     def check_mess_lid(self):
+        """
+        Проверяем либо сигналы от лидера, либо проверяем выборы
+        :return:
+        """
         now = time.time()
         if self.im_lider:
             if now - self.last_hb_sent >= self.hb_interval:
