@@ -468,6 +468,11 @@ class Manager:
         wr(self.self_num, 'client mess: ', mess_j)
 
     def send_k_find(self):
+        """
+        Поиск по слову
+        Вынесла отдельно чтобы потвторно можно было послать
+        :return:
+        """
         self.last_count = len(self.live_k)
         self.find_k = len(self.data[self.find_word])
         self.is_work = 'find'
@@ -556,12 +561,7 @@ class Manager:
             self.keeper_count = 0
             self.is_work = None
 
-        # with open('man_log.txt', 'a') as f:
-        #     f.write('keeper mess: ' + str(message) + '\n')
-        # wr(self.self_num, 'keeper mess: ', message)
 
-    # def load(self, path):
-    #     pass
 
 
 if __name__ == '__main__':
